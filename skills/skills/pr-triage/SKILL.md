@@ -1,14 +1,14 @@
 ---
 name: pr-triage
-description: Triage outstanding PR review requests for LLVM and IREE
+description: Triage outstanding PR review requests and do preliminary reviews for urgent ones
 disable-model-invocation: true
 argument-hint: "[optional: iree|llvm|all]"
-allowed-tools: Bash(gh:*), Read, Grep, Glob
+allowed-tools: Bash(gh:*), Read, Grep, Glob, WebFetch
 ---
 
 # PR Triage Skill
 
-Analyze outstanding PR review requests and prioritize them.
+Analyze outstanding PR review requests, prioritize them, and do preliminary reviews for urgent PRs.
 
 ## Scope
 
@@ -19,7 +19,9 @@ By default, check both IREE and LLVM repos. If $ARGUMENTS is provided:
 
 ## Process
 
-### 1. Fetch Outstanding PRs
+### Phase 1: Fetch and Categorize
+
+#### 1.1 Fetch Outstanding PRs
 
 ```bash
 # IREE PRs where user is requested reviewer
@@ -29,26 +31,20 @@ gh pr list --repo iree-org/iree --search "review-requested:@me" --json number,ti
 gh pr list --repo llvm/llvm-project --search "review-requested:@me" --json number,title,author,createdAt,additions,deletions,url,labels,reviewDecision,comments
 ```
 
-### 2. For Each PR, Gather Quick Info
-
-- **Size**: additions + deletions
-- **Age**: days since created
-- **Activity**: number of comments, whether there's already discussion
-- **Review status**: pending, changes requested, approved by others
-
-### 3. Categorize PRs
+#### 1.2 Categorize PRs
 
 **Priority Levels:**
 
-- **URGENT**:
+- **URGENT** (will get preliminary review):
   - Marked as urgent/blocker
   - Very old (>7 days) with no reviews
-  - Small fix (<50 lines) waiting on you
+  - Small fix (<100 lines) waiting on you
+  - Author has responded to previous comments
 
 - **NEEDS ATTENTION**:
-  - Author has responded to previous comments
   - Other reviewers have approved, waiting on you
   - Medium age (3-7 days)
+  - Medium size (100-500 lines)
 
 - **NORMAL**:
   - Recent PRs (<3 days)
@@ -60,62 +56,122 @@ gh pr list --repo llvm/llvm-project --search "review-requested:@me" --json numbe
   - WIP or experimental
   - Already has extensive review coverage
 
-### 4. Quick Analysis Per PR
+### Phase 2: Preliminary Reviews (Top 2-3 Urgent PRs)
 
-For each PR, provide:
-1. One-line summary of what it does
-2. Size category (small/medium/large)
-3. Key files changed (focus on areas of expertise)
-4. Any red flags (breaking changes, missing tests, etc.)
-5. Estimated review effort (quick/moderate/deep)
+For each PR in the URGENT category (up to 3), do a quick preliminary review:
 
-### 5. Output Format
+#### 2.1 Fetch PR Details
+```bash
+gh pr view <number> --repo <repo>
+gh pr diff <number> --repo <repo>
+gh pr view <number> --repo <repo> --comments
+```
+
+#### 2.2 Quick Analysis
+
+Apply Mahesh's review style principles:
+
+**Check for:**
+1. **Missing context** - Does PR description explain the "why"?
+2. **Test coverage** - Are there tests for the changes?
+3. **Obvious issues** - Logic errors, missing error handling
+4. **Footguns** - Potential issues that will bite developers later
+5. **Scope creep** - Changes that should be follow-ups
+
+**Flag with questions:**
+- "Why X?" for unclear design decisions
+- "Is this intentional?" for potentially problematic changes
+- "Missing test for..." for untested code paths
+
+**Note areas of expertise:**
+- Codegen changes
+- LinalgExt/Linalg changes
+- Tiling/distribution
+- Stream dialect
+- MLIR patterns
+
+#### 2.3 Preliminary Review Output
+
+For each urgent PR, provide:
+```
+### PR #12345: "Title"
+**Author:** @author | **Size:** +45/-10 | **Age:** 5 days
+
+**Summary:** One paragraph explaining what the PR does.
+
+**Quick Assessment:**
+- [ ] Description adequate
+- [ ] Tests included
+- [ ] No obvious issues
+
+**Concerns to investigate:**
+1. Line 42 in file.cpp: Why is X done this way?
+2. Missing test for edge case Y
+3. This changes behavior of Z - intentional?
+
+**Review effort:** Quick / Moderate / Deep dive needed
+```
+
+### Phase 3: Output Summary
 
 ```
-## PR Review Queue - [Date]
+# PR Review Queue - [Date]
 
-### URGENT (X PRs)
-- **#12345** [IREE] "Title" by @author (3 days, 45 lines)
-  - Summary: Fixes X in Y
-  - Effort: Quick review
-  - Note: Author addressed your previous comments
-
-### NEEDS ATTENTION (X PRs)
-...
-
-### NORMAL (X PRs)
-...
-
-### LOW PRIORITY (X PRs)
-...
+## Summary
+- Total PRs pending: X
+- Urgent (reviewed below): Y
+- Needs attention: Z
+- Can wait: W
 
 ---
-Total: X PRs pending review
-Recommended focus: Start with #12345 and #12346
+
+## Preliminary Reviews (Urgent PRs)
+
+[Detailed preliminary reviews for top 2-3 urgent PRs]
+
+---
+
+## Other PRs Needing Attention
+
+| PR | Repo | Title | Author | Age | Size | Note |
+|----|------|-------|--------|-----|------|------|
+| #123 | IREE | "Fix X" | @foo | 4d | S | Author responded |
+| #456 | LLVM | "Add Y" | @bar | 5d | M | Other approvals |
+
+---
+
+## Normal Priority
+
+[Brief list]
+
+---
+
+## Low Priority
+
+[Brief list]
+
+---
+
+## Recommended Action
+
+1. **Start with PR #12345** - Small fix, author waiting on response
+2. **Then PR #12346** - You're the blocking reviewer
+3. **Schedule time for PR #12347** - Large change, needs deep review
 ```
 
-## Expertise Areas to Flag
+## Review Style Guidelines (from code-reviews skill)
 
-When triaging, note if PR touches:
-- Codegen (compiler/src/iree/compiler/Codegen/)
-- LinalgExt (compiler/src/iree/compiler/Dialect/LinalgExt/)
-- Stream dialect
-- Dispatch creation
-- Tiling/distribution
-- MLIR core (for LLVM PRs)
-- Linalg dialect (for LLVM PRs)
+When doing preliminary reviews, apply these patterns:
 
-## Quick Review Hints
+- **Ask "why" questions** - Don't assume, ask for clarification
+- **Flag potential footguns** - Issues that will bite developers later
+- **Note missing descriptions** - "Fairly big change. This needs more description"
+- **Suggest follow-ups** - Don't try to fix everything in one PR
+- **Check upstream self-containment** (LLVM PRs) - Must be reproducible without IREE
 
-For PRs that look straightforward, provide a quick review hint:
-- "Looks like a mechanical refactor - verify no behavior change"
-- "Test-only change - check coverage"
-- "New feature - check for tests and documentation"
-- "Bug fix - look for regression test"
+## What This Skill Does NOT Do
 
-## What NOT to Do
-
-- Don't do full reviews - this is triage only
-- Don't post comments to PRs
-- Don't approve or request changes
-- Keep summaries brief - one line per PR
+- Post comments to PRs (triage only, you decide what to post)
+- Approve or request changes
+- Do exhaustive line-by-line review (that's for focused review time)
+- Review more than 3 PRs in depth (keeps triage quick)
