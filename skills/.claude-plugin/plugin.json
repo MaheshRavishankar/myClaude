@@ -1,0 +1,8 @@
+{
+  "name": "my-skills",
+  "description": "Personal Claude Code skills for LLVM and IREE development",
+  "version": "1.0.0",
+  "author": {
+    "name": "Mahesh Ravishankar"
+  }
+}
