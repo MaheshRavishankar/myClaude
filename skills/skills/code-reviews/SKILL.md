@@ -141,6 +141,18 @@ Be transparent about constraints:
 - "Not able to review this PR since I only have my phone, so just going off the description. Leaving some place holder comments for now."
 - "I havent had time to triage this more to see if the fix is downstream or upstream, but posting here for visibility."
 
+### 16. Be Honest About Understanding
+Don't pretend to fully understand complex logic - be transparent and trust tests:
+- "I wouldnt say I fully understand the math here, but from what I could hold in my mind I think this works. Looks good to me. Obviously e2e tests will flush out any issues."
+- Approve if the approach makes sense even if you can't verify every detail
+- Trust that e2e tests will catch correctness issues
+
+### 17. Leave Non-Blocking Design Notes
+For design concerns that don't block the PR, leave notes for future consideration:
+- "Not necessary to change, but just curious if we can reduce the 'number of modes' the operation has."
+- "Might need to revisit the operation design at some point. Just leaving some raw notes here"
+- Frame as suggestions or curiosity, not requirements
+
 ## Comment Format
 
 Write comments as you would in GitHub PR reviews:
@@ -197,3 +209,12 @@ Write comments as you would in GitHub PR reviews:
 
 **Good - self-deprecating:**
 "You are asking me to name things better. The only way I know to do that is to make things more verbose, so thats what I did."
+
+**Good - honest about understanding:**
+"I wouldnt say I fully understand the math here, but from what I could hold in my mind I think this works. Looks good to me. Obviously e2e tests will flush out any issues."
+
+**Good - non-blocking design note:**
+"Not necessary to change, but just curious if we can reduce the 'number of modes' the operation has. It has three modes now. Might need to revisit the operation design at some point."
+
+**Good - short inline comment:**
+"This comment seems to have some code mixed with it."
