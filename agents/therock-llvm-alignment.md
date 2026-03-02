@@ -9,6 +9,21 @@ branch that builds and passes tests against the exact same LLVM as ROCm/TheRock
 uses, enabling IREE integration into TheRock's mainline build system with zero
 LLVM divergence.
 
+## TheRock Branch Target
+
+**Always track TheRock's `compiler/amd-staging` branch.** This is the active
+development branch with the most recent LLVM upstream merge base, which
+minimizes the API gap with IREE's LLVM pin.
+
+All `--therock-ref` arguments MUST use `compiler/amd-staging`:
+```bash
+scripts/find-therock-llvm-pin --therock-ref compiler/amd-staging
+scripts/setup-therock-llvm-alignment --therock-ref compiler/amd-staging ...
+```
+
+Do NOT use `compiler/amd-mainline` or any other branch unless the user
+explicitly overrides this.
+
 ## Branch
 
 The working branch is **`shared/iree-therock-mainline`**. This is a persistent
@@ -63,6 +78,19 @@ Allowed edit scenarios (in order of preference):
 **NEVER** make wholesale file restores to "earlier epoch versions" — this
 discards legitimate changes from other cherry-picks.
 
+### Tracking Local Source Fixes
+
+Every direct source edit (scenarios 4 and 5 above) MUST be recorded in
+`MEMORY.md` under the `## Local Source Fixes` section. Each entry must
+include:
+- The **file path** that was modified
+- A **description** of the change (what was changed and why)
+- Whether the fix is still needed or was superseded by a later cherry-pick
+
+This is critical because when the agent resets the branch to a new base
+(e.g., latest `main`), it must review these fixes and re-apply any that
+are still needed for the current ROCm LLVM pin. See Phase 2a for details.
+
 ## Memory / Resume
 
 This agent uses the `memory: project` system to persist state across sessions.
@@ -114,7 +142,7 @@ The following must exist:
 
 Run the discovery script:
 ```bash
-scripts/find-therock-llvm-pin --therock-ref compiler/amd-mainline
+scripts/find-therock-llvm-pin --therock-ref compiler/amd-staging
 ```
 
 Parse the output to extract:
@@ -132,7 +160,8 @@ First, check if `shared/iree-therock-mainline` already exists:
 git branch --list shared/iree-therock-mainline
 ```
 
-**If the branch exists**, check it out and fetch the latest from remote:
+**If the branch exists and the ROCm LLVM pin has NOT changed** since the
+last run (check `MEMORY.md`), check it out and resume:
 ```bash
 git checkout shared/iree-therock-mainline
 git fetch origin shared/iree-therock-mainline
@@ -140,9 +169,28 @@ git merge --ff-only origin/shared/iree-therock-mainline || true
 ```
 Then skip to Phase 3 (the branch already has the LLVM swap and prior work).
 
+**If the branch exists but the ROCm LLVM pin has changed**, or if IREE main
+has advanced significantly, reset the branch to latest main and start fresh:
+```bash
+git checkout shared/iree-therock-mainline
+git fetch origin main
+git reset --hard origin/main
+```
+
+After resetting, you MUST:
+1. **Review `MEMORY.md`** for the `## Local Source Fixes` section from the
+   previous run. These are source edits that were needed to build against
+   ROCm's LLVM.
+2. **Check each fix** against the new ROCm LLVM pin — some may no longer be
+   needed if the API gap has changed.
+3. **Re-apply fixes that are still needed** after the LLVM submodule swap
+   and initial build attempt (in Phase 2b). Do NOT blindly re-apply all
+   fixes; let the build tell you which are still required.
+4. Proceed to the LLVM submodule swap and cmake configuration below.
+
 **If the branch does NOT exist**, create it by running the setup script:
 ```bash
-scripts/setup-therock-llvm-alignment --therock-ref compiler/amd-mainline --configure-only
+scripts/setup-therock-llvm-alignment --therock-ref compiler/amd-staging --configure-only
 git branch -m <generated-branch-name> shared/iree-therock-mainline
 ```
 
@@ -204,10 +252,10 @@ This is the **baseline**. All subsequent cherry-picks are measured against this.
 ```bash
 cd iree
 git add third_party/llvm-project
-git commit -s -m "Align LLVM with TheRock compiler/amd-mainline
+git commit -s -m "Align LLVM with TheRock compiler/amd-staging
 
 Update third_party/llvm-project to ROCm/llvm-project@<ROCM_LLVM_PIN>
-for zero LLVM divergence with TheRock's mainline build."
+for zero LLVM divergence with TheRock's staging build."
 ```
 
 ### Phase 3: Epoch-based cherry-pick from IREE main
@@ -394,6 +442,7 @@ Do NOT proceed to the next epoch without test results.
    # TheRock LLVM Alignment State
 
    Branch: shared/iree-therock-mainline
+   TheRock branch: compiler/amd-staging
    ROCm LLVM pin: <sha>
    Base IREE commit: <sha>
    Build dir: <build-dir>
@@ -410,6 +459,15 @@ Do NOT proceed to the next epoch without test results.
    ## Current Failing Tests
    - test_name_1
    - test_name_3
+
+   ## Local Source Fixes
+   These are direct source edits made to fix LLVM API differences.
+   When the branch is reset to a new base, review each fix and re-apply
+   if the build still requires it.
+
+   | File | Change | Still needed? |
+   |------|--------|---------------|
+   | path/to/file.cpp | Description of change | Yes/No/Unknown |
    ```
 
    **b) Append to `run-YYYYMMDD.md`** — log what this epoch did in this run:
@@ -588,15 +646,25 @@ Reverted LLVM commits:
 
 ### Phase 5: Enable CI and push
 
-After all epochs are processed and the report is printed, add a final commit
-that enables CI on the branch, then push.
+After all epochs are processed and the report is printed, ensure the CI
+enablement commit is present, then push.
 
-#### 5a: Add CI enablement commit
+#### 5a: Ensure CI enablement commit is the top commit
 
-Add `shared/iree-therock-mainline` to the push trigger in `.github/workflows/ci.yml`:
+**This is a HARD REQUIREMENT before any push.** The CI enablement commit
+MUST be the topmost (most recent) commit on the branch. Without it, pushing
+the branch will not trigger CI and failures will go undetected.
+
+**Check if CI is already enabled** by inspecting `.github/workflows/ci.yml`:
+```bash
+grep -A5 'push:' .github/workflows/ci.yml | grep 'shared/iree-therock-mainline'
+```
+
+**If the branch is NOT listed**, or if it's present but was inherited from
+main (not a separate commit on top), add a dedicated commit:
 
 ```yaml
-# In the on: section, add the branch:
+# In the on: section, ensure the branch is listed:
 on:
   workflow_dispatch:
   pull_request:
@@ -606,15 +674,33 @@ on:
       - shared/iree-therock-mainline
 ```
 
-Commit this change:
 ```bash
 git add .github/workflows/ci.yml
 git commit -s -m "Enable CI on shared/iree-therock-mainline branch"
 ```
 
-**This commit must ALWAYS be the top (most recent) commit on the branch.**
-If you cherry-pick more IREE commits later, rebase the CI commit on top
-or recreate it after the new cherry-picks.
+**If the branch IS already listed from a prior commit on the branch** (not
+from main), verify it's the topmost commit:
+```bash
+git log --oneline -1  # Should show the CI enablement commit
+```
+
+If it's not on top (e.g., more commits were added after it), recreate it:
+```bash
+# Remove the old CI commit and recreate on top
+git rebase --onto HEAD~1 HEAD~2 HEAD~1  # or simply:
+git revert <old-ci-commit> --no-edit
+# Then re-add:
+git add .github/workflows/ci.yml
+git commit -s -m "Enable CI on shared/iree-therock-mainline branch"
+```
+
+**CRITICAL**: If main already contains `shared/iree-therock-mainline` in
+its ci.yml (from a previous push that was merged), and the branch was reset
+to main, the CI enablement is inherited. In this case, check that CI will
+actually trigger by confirming the branch name appears in `ci.yml` on the
+branch. If it does, no extra commit is needed — but you MUST verify this
+before pushing.
 
 #### 5b: Push
 
